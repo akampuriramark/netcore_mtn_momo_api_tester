@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using MomoApiTester.Entities;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,16 +15,16 @@ namespace MomoApiTester
     {
         //when you subscribe for a product, you get 2 keys...a primary and a secondary
         //put the primary key here (i hear either can work)
-        private const string SubscriptionKey = "c091e5095e484fdea549fa23f40b11ea";
+        private const string SubscriptionKey = Globals.COLLECTION_SUBSCRIPTION_KEY;
 
         //once you have an API user, you can then use the create API key endpoint
         //at to create an API key...put it here
-        private const string ApiKey = "0f194c7ed6ce4b59928abb9e72abeb1e";
+        private const string ApiKey = Globals.COLLECTION_API_KEY;
 
         //before using the API, you must register an API user by firing a json request
         //to the create API user endpoint. I used postman to fire. Details here
         //
-        private const string ApiUser = "4e1ec7a2-9339-438b-855f-55472183e3ef";
+        private const string ApiUser = Globals.COLLECTION_API_USER;
 
         //to create an API key you must supply a call back host e.g localhost or example.com etc
         //so your call back url must be a sub url in that call back host otherwise it wont work
@@ -45,23 +46,23 @@ namespace MomoApiTester
 
             //once you have the token you can now send a request to pay.
             //this API returns an empty response with http status code 202 (Accepted)
-            string payResposne = SendRequestToPay(transactionID, token, SubscriptionKey, CallBackURL);
+            Response payResponse = SendRequestToPay(transactionID, token, SubscriptionKey, CallBackURL);
 
-            Console.WriteLine($"RequestToPayResponse (Empty is good): {payResposne}");
+            Console.WriteLine($"RequestToPayResponse (Empty is good): {payResponse.StatusCode} : {payResponse.ReasonPhrase}");
 
             //you need this last API to get the final status of a previously submitted
             //transaction. Remember the actual transaction ID is the UUID generated
-            string tranStatus = GetTransactionStatus(transactionID, token, SubscriptionKey);
+            Response tranStatus = GetTransactionStatus(transactionID, token, SubscriptionKey);
 
-            Console.WriteLine($"Transaction Status: {tranStatus}");
+            Console.WriteLine($"Transaction Status: {tranStatus.StatusCode} : {tranStatus.Content}");
 
             //leave
             Console.ReadLine();
         }
 
-        private static string GetTransactionStatus(string uuid, string token, string subscriptionKey)
+        private static Response GetTransactionStatus(string uuid, string token, string subscriptionKey)
         {
-            string url = $"https://ericssonbasicapi2.azure-api.net/collection/v1_0/requesttopay/" + uuid;//d18ab8ea-a1d8-454b-8fcb-1580441515f4";
+            string url = Globals.COLLECTION_GET_TRAN_STATUS_URL + uuid;//d18ab8ea-a1d8-454b-8fcb-1580441515f4";
 
 
             Dictionary<string, string> headers = new Dictionary<string, string>
@@ -71,20 +72,20 @@ namespace MomoApiTester
                 {"X-Target-Environment", "sandbox" },
             };
 
-            string statusResponse = Task.Run(() => SendHttpGetRequest(url, headers)).Result;
+            Response statusResponse = Task.Run(() => SendHttpGetRequest(url, headers)).Result;
             return statusResponse;
         }
 
-        private static string SendRequestToPay(string uuid, string token, string subscriptionKey, string callbackURL)
+        private static Response SendRequestToPay(string uuid, string token, string subscriptionKey, string callbackURL)
         {
-            string url = "https://ericssonbasicapi2.azure-api.net/collection/v1_0/requesttopay";
+            string url = Globals.COLLECTION_REQUEST_2_PAY_URL;
             string body = "{" +
                               "\"amount\": \"1000\"," +
                               "\"currency\": \"EUR\"," +
                               "\"externalId\": \"125677889945656675659678\"," +
                               "\"payer\": {" +
-                                            "\"partyIdType\": \"MSISDN\"," +
-                                            "\"partyId\": \"256785975800\"" +
+                                            "\"partyIdType\": \""+ Globals.COLLECTION_PARTYID_TYPE + "\"," +
+                                            "\"partyId\": \"256784292383\"" +
                               "}," +
                               "\"payerMessage\": \"Test Payment 5\"," +
                               "\"payeeNote\": \"Test Payment 6\"" +
@@ -95,17 +96,17 @@ namespace MomoApiTester
                 {"X-Reference-Id", uuid },
                 {"Authorization", $"Bearer {token}" },
                 {"Ocp-Apim-Subscription-Key", subscriptionKey },
-                {"X-Callback-Url", callbackURL },
+                //{"X-Callback-Url", callbackURL }, // Removed callback URL till production
                 {"X-Target-Environment", "sandbox" },
             };
 
-            string payResponse = Task.Run(() => SendHttpPostRequest(url, body, headers)).Result;
+            Response payResponse = Task.Run(() => SendHttpPostRequest(url, body, headers)).Result;
             return payResponse;
         }
 
         private static string GenerateToken(string subscriptionKey)
         {
-            string url = "https://ericssonbasicapi2.azure-api.net/collection/token/";
+            string url = Globals.COLLECTION_GENERATE_TOKEN_URL;
             string body = "";
 
             Dictionary<string, string> headers = new Dictionary<string, string>
@@ -114,8 +115,8 @@ namespace MomoApiTester
                 { "Ocp-Apim-Subscription-Key", subscriptionKey }
             };
 
-            string tokenJson = Task.Run(() => SendHttpPostRequest(url, body, headers)).Result;
-            dynamic token = JsonConvert.DeserializeObject(tokenJson);
+            Response tokenJson = Task.Run(() => SendHttpPostRequest(url, body, headers)).Result;
+            dynamic token = JsonConvert.DeserializeObject(tokenJson.Content);
             return token.access_token.ToString();
         }
 
@@ -124,7 +125,7 @@ namespace MomoApiTester
             return Convert.ToBase64String(Encoding.UTF8.GetBytes(plainstring));
         }
 
-        private static async Task<string> SendHttpGetRequest(string url, Dictionary<string, string> headers)
+        private static async Task<Response> SendHttpGetRequest(string url, Dictionary<string, string> headers)
         {
             var client = new HttpClient();
             var queryString = HttpUtility.ParseQueryString(string.Empty);
@@ -134,16 +135,25 @@ namespace MomoApiTester
             client.DefaultRequestHeaders.Add("X-Target-Environment", "sandbox");
             client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", SubscriptionKey);
 
-            var uri = "https://ericssonbasicapi2.azure-api.net/collection/v1_0/requesttopay/{referenceId}?" + queryString;
+            var uri = Globals.COLLECTION_HTTP_GET_URL + queryString;
 
             var response = await client.GetAsync(url);
-            return await response.Content.ReadAsStringAsync();
+
+            return new Response()
+            {
+                StatusCode = response?.StatusCode.ToString(),
+                Content = await (response?.Content?.ReadAsStringAsync()),
+                ReasonPhrase = response?.ReasonPhrase.ToString(),
+                Request = response?.RequestMessage?.ToString(),
+                IsSuccessStatusCode = response?.IsSuccessStatusCode
+            };
+            //return await response.Content.ReadAsStringAsync();
         }
 
-        private static async Task<string> SendHttpPostRequest(string url, string body, Dictionary<string, string> headers)
+        private static async Task<Response> SendHttpPostRequest(string url, string body, Dictionary<string, string> headers)
         {
             var client = new HttpClient();
-            var queryString = HttpUtility.ParseQueryString(string.Empty);
+            //var queryString = HttpUtility.ParseQueryString(string.Empty);
 
             client.DefaultRequestHeaders.Add("Authorization", headers["Authorization"]);
             headers.Remove("Authorization");
@@ -162,8 +172,15 @@ namespace MomoApiTester
                 content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
                 response = await client.PostAsync(url, content);
             }
-
-            return await response?.Content?.ReadAsStringAsync();
+            return new Response()
+            {
+                StatusCode = response?.StatusCode.ToString(),
+                Content = await (response?.Content?.ReadAsStringAsync()),
+                ReasonPhrase = response?.ReasonPhrase.ToString(),
+                Request = response?.RequestMessage?.ToString(),
+                IsSuccessStatusCode = response?.IsSuccessStatusCode
+            };
+            //return await response?.Content?.ReadAsStringAsync();
 
         }
 
